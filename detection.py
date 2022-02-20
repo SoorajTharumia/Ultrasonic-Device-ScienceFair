@@ -3,7 +3,6 @@ import os
 import argparse
 import cv2
 import numpy as np
-import sys
 import time
 from threading import Thread
 import importlib.util
@@ -52,6 +51,7 @@ class VideoStream:
 
 # Define and parse input arguments
 parser = argparse.ArgumentParser()
+parser.add_argument('--modeldir', help='Folder the .tflite file is located in')
 parser.add_argument('--graph', help='Name of the .tflite file, if different than detect.tflite',
                     default='detect.tflite')
 parser.add_argument('--labels', help='Name of the labelmap file, if different than labelmap.txt',
@@ -65,6 +65,7 @@ parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed u
 
 args = parser.parse_args()
 
+MODEL_NAME = 'ObjectModelList'
 GRAPH_NAME = args.graph
 LABELMAP_NAME = args.labels
 min_conf_threshold = float(args.threshold)
@@ -73,8 +74,7 @@ imW, imH = int(resW), int(resH)
 use_TPU = args.edgetpu
 
 # Import TensorFlow libraries
-# If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflow
-# If using Coral Edge TPU, import the load_delegate library
+# If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflowq
 pkg = importlib.util.find_spec('tflite_runtime')
 if pkg:
     from tflite_runtime.interpreter import Interpreter
@@ -84,12 +84,6 @@ else:
     from tensorflow.lite.python.interpreter import Interpreter
     if use_TPU:
         from tensorflow.lite.python.interpreter import load_delegate
-
-# If using Edge TPU, assign filename for Edge TPU model
-if use_TPU:
-    # If user has specified the name of the .tflite file, use that name, otherwise use default 'edgetpu.tflite'
-    if (GRAPH_NAME == 'detect.tflite'):
-        GRAPH_NAME = 'edgetpu.tflite'       
 
 # Get path to current working directory
 CWD_PATH = os.getcwd()
@@ -111,13 +105,7 @@ if labels[0] == '???':
     del(labels[0])
 
 # Load the Tensorflow Lite model.
-# If using Edge TPU, use special load_delegate argument
-if use_TPU:
-    interpreter = Interpreter(model_path=PATH_TO_CKPT,
-                              experimental_delegates=[load_delegate('libedgetpu.so.1.0')])
-    print(PATH_TO_CKPT)
-else:
-    interpreter = Interpreter(model_path=PATH_TO_CKPT)
+interpreter = Interpreter(model_path=PATH_TO_CKPT)
 
 interpreter.allocate_tensors()
 
@@ -132,19 +120,12 @@ floating_model = (input_details[0]['dtype'] == np.float32)
 input_mean = 127.5
 input_std = 127.5
 
-# Initialize frame rate calculation
-frame_rate_calc = 1
-freq = cv2.getTickFrequency()
-
 # Initialize video stream
 videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
 time.sleep(1)
 
 #for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
 while True:
-
-    # Start timer (for calculating frame rate)
-    t1 = cv2.getTickCount()
 
     # Grab frame from video stream
     frame1 = videostream.read()
@@ -168,7 +149,7 @@ while True:
     classes = interpreter.get_tensor(output_details[1]['index'])[0] # Class index of detected objects
     scores = interpreter.get_tensor(output_details[2]['index'])[0] # Confidence of detected objects
     #num = interpreter.get_tensor(output_details[3]['index'])[0]  # Total number of detected objects (inaccurate and not needed)
-
+    
     # Loop over all detections and draw detection box if confidence is above minimum threshold
     for i in range(len(scores)):
         if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
@@ -190,16 +171,28 @@ while True:
             cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
             cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
 
-    # Draw framerate in corner of frame
-    cv2.putText(frame,'FPS: {0:.2f}'.format(frame_rate_calc),(30,50),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,0),2,cv2.LINE_AA)
+            # Place dot in the center of the screen
+            center_x = 640
+            center_y = 360
+            center_coordinates = (center_x,center_y)
+            radius=3
+            color = (0,0,255)
+            thickness=-1
+            cv2.circle(frame, center_coordinates, radius, color, thickness)
+
+            #Put circle in the middle (this is to indicate whether it is to the right or left)
+            xcenter = xmin + (int(round((xmax-xmin)/2)))
+            ycenter = ymin + (int(round((ymax-ymin)/2)))
+            cv2.circle(frame, (xcenter, ycenter), 5, (0,0,255), thickness=-1)
 
     # All the results have been drawn on the frame, so it's time to display it.
-    cv2.imshow('Object detector', frame)
+    cv2.imshow('Obstruction Watcher', frame)
 
-    # Calculate framerate
-    t2 = cv2.getTickCount()
-    time1 = (t2-t1)/freq
-    frame_rate_calc= 1/time1
+    # Say if the object is to the left or right
+    if (center_x > xcenter):
+        print("left")
+    else: 
+        print("right")
 
     # Press 'q' to quit
     if cv2.waitKey(1) == ord('q'):
