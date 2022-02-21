@@ -6,6 +6,10 @@ import numpy as np
 import time
 from threading import Thread
 import importlib.util
+import RPi.GPIO as GPIO
+import time
+
+GPIO.setwarnings(False)
 
 # Define VideoStream class to handle streaming of video from webcam in separate processing thread
 # Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
@@ -185,15 +189,50 @@ while True:
             ycenter = ymin + (int(round((ymax-ymin)/2)))
             cv2.circle(frame, (xcenter, ycenter), 5, (0,0,255), thickness=-1)
 
+            # Say if the object is to the left or right
+            if (center_x > xcenter):
+                print("left")
+            else: 
+                print("right")
+
     # All the results have been drawn on the frame, so it's time to display it.
     cv2.imshow('Obstruction Watcher', frame)
 
-    # Say if the object is to the left or right
-    if (center_x > xcenter):
-        print("left")
-    else: 
-        print("right")
+    # Distance measurement
+    GPIO.setmode(GPIO.BOARD)
+    pinTrigger = 7
+    pinEcho = 11
 
+    GPIO.setup(pinTrigger, GPIO.OUT)
+    GPIO.setup(pinEcho, GPIO.IN)
+            
+    GPIO.output(pinTrigger, False)
+    time.sleep(0.5)
+
+    for i in range(1):
+        GPIO.output(pinTrigger, True)
+        time.sleep(0.0001)
+        GPIO.output(pinTrigger, False)
+
+        while GPIO.input(pinEcho)==0:
+            pass
+            pulseStart = time.time()
+
+        while GPIO.input(pinEcho) == 1:
+            pass
+            pulseEnd = time.time()
+
+        pulseDuration = pulseEnd - pulseStart
+
+        distance = (pulseDuration * 17150)
+        distance = round(distance + 1.15,2)
+
+        print("Distance is: ") + str(distance) + " cm"
+
+        time.sleep(0.5)
+
+    GPIO.cleanup()
+        
     # Press 'q' to quit
     if cv2.waitKey(1) == ord('q'):
         break
