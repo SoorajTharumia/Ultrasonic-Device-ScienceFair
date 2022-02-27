@@ -184,7 +184,7 @@ while True:
             thickness=-1
             cv2.circle(frame, center_coordinates, radius, color, thickness)
 
-            #Put circle in the middle (this is to indicate whether it is to the right or left)
+            #Put circle in the middle of object (this is to indicate whether it is to the right or left)
             xcenter = xmin + (int(round((xmax-xmin)/2)))
             ycenter = ymin + (int(round((ymax-ymin)/2)))
             cv2.circle(frame, (xcenter, ycenter), 5, (0,0,255), thickness=-1)
