@@ -1,4 +1,4 @@
-# Import packages
+# Importing packages necessary for the program to operate
 import os
 import argparse
 import cv2
@@ -10,46 +10,41 @@ import RPi.GPIO as GPIO
 import time
 from espeak import espeak
 
+# Initializing connections for the GPIO pins on the Raspberry Pi
 GPIO.setwarnings(False)
-
 GPIO.setmode(GPIO.BCM)
-
 GPIO.setup(22,GPIO.OUT)
 servo1 = GPIO.PWM(22,50)
 pinTrigger = 18
 pinEcho = 4
 GPIO.setup(pinTrigger, GPIO.OUT)
 GPIO.setup(pinEcho, GPIO.IN)
-
 GPIO.output(pinTrigger, False)
 time.sleep(0.5)
 
 servo1.start(0)
 
-# Define VideoStream class to handle streaming of video from webcam in separate processing thread
-# Source - Adrian Rosebrock, PyImageSearch: https://www.pyimagesearch.com/2015/12/28/increasing-raspberry-pi-fps-with-python-and-opencv/
+# Define the VideoStream class in order to fetch the live video feed from the webcam
 class VideoStream:
     """Camera object that controls video streaming from the Picamera"""
     def __init__(self,resolution=(640,480),framerate=30):
-        # Initialize the PiCamera and the camera image stream
+        # Initialize the webcam and the camera image feed
         self.stream = cv2.VideoCapture(0)
         ret = self.stream.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         ret = self.stream.set(3,resolution[0])
         ret = self.stream.set(4,resolution[1])
             
-        # Read first frame from the stream
+        # Retrieve/Read the first frame of the live webcam feed
         (self.grabbed, self.frame) = self.stream.read()
-
-	# Variable to control when the camera is stopped
         self.stopped = False
 
     def start(self):
-	# Start the thread that reads frames from the video stream
+        # Reads the frames of the webcam video feed
         Thread(target=self.update,args=()).start()
         return self
 
     def update(self):
-        # Keep looping indefinitely until the thread is stopped
+        # Enters a forever loop until the thread is stopped
         while True:
             # If the camera is stopped, stop the thread
             if self.stopped:
@@ -61,11 +56,11 @@ class VideoStream:
             (self.grabbed, self.frame) = self.stream.read()
 
     def read(self):
-	# Return the most recent frame
+	    # Return the most recent frame
         return self.frame
 
     def stop(self):
-	# Indicate that the camera and thread should be stopped
+	    # Indicate that the camera and thread should be stopped
         self.stopped = True
 
 # Define and parse input arguments
@@ -84,6 +79,7 @@ parser.add_argument('--edgetpu', help='Use Coral Edge TPU Accelerator to speed u
 
 args = parser.parse_args()
 
+# Defines the model, graph, and label files for the object detection model 
 MODEL_NAME = 'ObjectModelList'
 GRAPH_NAME = args.graph
 LABELMAP_NAME = args.labels
@@ -93,7 +89,6 @@ imW, imH = int(resW), int(resH)
 use_TPU = args.edgetpu
 
 # Import TensorFlow libraries
-# If tflite_runtime is installed, import interpreter from tflite_runtime, else import from regular tensorflowq
 pkg = importlib.util.find_spec('tflite_runtime')
 if pkg:
     from tflite_runtime.interpreter import Interpreter
@@ -113,15 +108,12 @@ PATH_TO_LABELS = os.path.join(CWD_PATH,MODEL_NAME,LABELMAP_NAME)
 with open(PATH_TO_LABELS, 'r') as f:
     labels = [line.strip() for line in f.readlines()]
 
-# Have to do a weird fix for label map if using the COCO "starter model" from
-# https://www.tensorflow.org/lite/models/object_detection/overview
-# First label is '???', which has to be removed.
+# Removes the ??? labels from the pre-prepared object detection model
 if labels[0] == '???':
     del(labels[0])
 
 # Load the Tensorflow Lite model.
 interpreter = Interpreter(model_path=PATH_TO_CKPT)
-
 interpreter.allocate_tensors()
 
 # Get model details
@@ -139,52 +131,44 @@ input_std = 127.5
 videostream = VideoStream(resolution=(imW,imH),framerate=30).start()
 time.sleep(1)
 
-#for frame1 in camera.capture_continuous(rawCapture, format="bgr",use_video_port=True):
+# Enters a forever loop to create the video stream from the webcam
 while True:
-
-    # Grab frame from video stream
+    # Grabs frame from live webcam video stream
     frame1 = videostream.read()
 
-    # Acquire frame and resize to expected shape [1xHxWx3]
+    # Gets the frame of the webcam video stream and resizes it
     frame = frame1.copy()
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     frame_resized = cv2.resize(frame_rgb, (width, height))
     input_data = np.expand_dims(frame_resized, axis=0)
 
-    # Normalize pixel values if using a floating model (i.e. if model is non-quantized)
-    if floating_model:
-        input_data = (np.float32(input_data) - input_mean) / input_std
-
-    # Perform the actual detection by running the model with the image as input
+    # Perform the actual detection by running the model with the image (frame) as input
     interpreter.set_tensor(input_details[0]['index'],input_data)
     interpreter.invoke()
 
-    # Retrieve detection results
+    # Model completes its evaluation of the objects in the image and retrieves the information
     boxes = interpreter.get_tensor(output_details[0]['index'])[0] # Bounding box coordinates of detected objects
     classes = interpreter.get_tensor(output_details[1]['index'])[0] # Class index of detected objects
     scores = interpreter.get_tensor(output_details[2]['index'])[0] # Confidence of detected objects
-    #num = interpreter.get_tensor(output_details[3]['index'])[0]  # Total number of detected objects (inaccurate and not needed)
     
     # Loop over all detections and draw detection box if confidence is above minimum threshold
     for i in range(len(scores)):
         if ((scores[i] > min_conf_threshold) and (scores[i] <= 1.0)):
 
             # Get bounding box coordinates and draw box
-            # Interpreter can return coordinates that are outside of image dimensions, need to force them to be within image using max() and min()
             ymin = int(max(1,(boxes[i][0] * imH)))
             xmin = int(max(1,(boxes[i][1] * imW)))
             ymax = int(min(imH,(boxes[i][2] * imH)))
             xmax = int(min(imW,(boxes[i][3] * imW)))
-            
             cv2.rectangle(frame, (xmin,ymin), (xmax,ymax), (10, 255, 0), 2)
 
             # Draw label
-            object_name = labels[int(classes[i])] # Look up object name from "labels" array using class index
-            label = '%s: %d%%' % (object_name, int(scores[i]*100)) # Example: 'person: 72%'
-            labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2) # Get font size
-            label_ymin = max(ymin, labelSize[1] + 10) # Make sure not to draw label too close to top of window
-            cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED) # Draw white box to put label text in
-            cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2) # Draw label text
+            object_name = labels[int(classes[i])]
+            label = '%s: %d%%' % (object_name, int(scores[i]*100))
+            labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+            label_ymin = max(ymin, labelSize[1] + 10)
+            cv2.rectangle(frame, (xmin, label_ymin-labelSize[1]-10), (xmin+labelSize[0], label_ymin+baseLine-10), (255, 255, 255), cv2.FILLED)
+            cv2.putText(frame, label, (xmin, label_ymin-7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
 
             # Place dot in the center of the screen
             center_x = 640
@@ -195,7 +179,7 @@ while True:
             thickness=-1
             cv2.circle(frame, center_coordinates, radius, color, thickness)
 
-            #Put circle in the middle (this is to indicate whether it is to the right or left)
+            #Put circle in the middle of the bounding box (this is to indicate whether it is to the right or left)
             xcenter = xmin + (int(round((xmax-xmin)/2)))
             ycenter = ymin + (int(round((ymax-ymin)/2)))
             cv2.circle(frame, (xcenter, ycenter), 5, (0,0,255), thickness=-1)
@@ -205,59 +189,66 @@ while True:
                 direction = 0 # left
             else: 
                 direction = 1 # right
-                
+            
+            # Find the number of pixels between the center of the screen and the center of the bounding box in the x-direction
             pixel_difference_servo = abs(center_x - xcenter)
             angle_difference = pixel_difference_servo/10.5  
             
-            if (direction == 0 ):
+            # Rotates the servo motor according to the direction and angle as seen before
+            if (direction == 0):
                 angle = 90 + angle_difference
                 
+                # Converts to radians and rotates the servo to the necessary angle
                 servo1.ChangeDutyCycle(2+(angle/18))
                 time.sleep(0.5)
                 servo1.ChangeDutyCycle(0)
                 
             else:
                 angle = 90 - angle_difference
-                
+
+                # Converts to radians and rotates the servo to the necessary angle
                 servo1.ChangeDutyCycle(2+(angle/18))
                 time.sleep(0.5)
                 servo1.ChangeDutyCycle(0)
-                            
+
+            # Distance Measurement Program
+            # Initializes all of the GPIO pins of the Raspberry Pi           
             GPIO.setmode(GPIO.BCM)
-    
             pinTrigger = 18
             pinEcho = 4
             GPIO.setup(pinTrigger, GPIO.OUT)
             GPIO.setup(pinEcho, GPIO.IN)
-
             GPIO.output(pinTrigger, False)
             time.sleep(0.5)
-            
             GPIO.output(pinTrigger, True)
             time.sleep(0.0001)
             GPIO.output(pinTrigger, False)
 
+            # Logs the pulse time, which is where the trigger pin pulses the ultrasonic sound wave
             while GPIO.input(pinEcho)==0:
                 pulseStart = time.time()
 
+            # Logs the pulse time, which is where the echo pin receives a reflected signal/ultrasonic sound wave
             while GPIO.input(pinEcho) == 1:
                 pulseEnd = time.time()
 
+            # Gets the time difference to find the distance
             pulseDuration = pulseEnd - pulseStart
 
+            # Calculates the distance from the sensor to the object based on the time difference
             distance = ((pulseDuration * 17150)+1.15)
             distance = (distance/100)
             distance = round(distance)
 
+            # Prints out the distance to the console
             print(("Distance is: ") + str(distance) + " meters")
-            
             time.sleep(0.5)
             
             # F string literal to dictate the direction and distance of the object
             espeak.synth(f'There is an object to your {"left" if not direction else "right"} {distance} meters away')
             time.sleep(2)
 
-    # All the results have been drawn on the frame, so it's time to display it.
+    # Displays the live webcam feed to the Raspberry Pi OS
     cv2.imshow('Obstruction Watcher', frame)
         
     # Press 'q' to quit
