@@ -7,7 +7,6 @@ import time
 from threading import Thread
 import importlib.util
 import RPi.GPIO as GPIO
-import time
 from espeak import espeak
 
 # Initializing connections for the GPIO pins on the Raspberry Pi
