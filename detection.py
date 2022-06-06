@@ -257,4 +257,4 @@ while True:
 # Clean up
 cv2.destroyAllWindows()
 videostream.stop()
-GPIO.cleanup()
+GPIO.cleanup()  
